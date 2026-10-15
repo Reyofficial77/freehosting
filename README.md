@@ -51,3 +51,7 @@ Do not expose secrets with a `NEXT_PUBLIC_` prefix. Do not deploy publicly as a 
 - Framework detection is heuristic; it does not execute user scripts.
 - No uploaded user code is run in this app's API process.
 - Vercel token/project/domain environment variables are not used to deploy projects yet; do not assume a project URL or custom domain exists until provider integration is completed.
+
+### Memperbaiki database Neon yang sudah ada
+
+Jika upload gagal dengan `Failed query: insert into "projects"`, jalankan SQL dari `drizzle/0001_repair_existing_projects.sql` di Neon SQL Editor, lalu coba upload kembali. Migrasi ini memakai `ADD COLUMN IF NOT EXISTS` agar aman dijalankan ulang. Pastikan tabel `projects` memang tabel milik aplikasi ini.
