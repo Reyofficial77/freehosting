@@ -14,13 +14,15 @@ export async function validateZip(buffer: Buffer): Promise<{ files: ZipFileInfo[
   for (const entry of directory.files) {
     const path = entry.path.replace(/\\/g, "/");
     if (path.startsWith("/") || /^[a-zA-Z]:/.test(path) || path.split("/").some(part => part === "..")) throw new Error("Arsip ditolak karena berisi path yang tidak aman.");
-    if (entry.type === "SymbolicLink") throw new Error("Arsip yang berisi symbolic link tidak diizinkan.");
+    // unzipper typings only declare File/Directory, so normalize to string before checking ZIP metadata.
+    const entryType: string = String(entry.type);
+    if (entryType === "SymbolicLink" || entryType === "Link") throw new Error("Arsip yang berisi symbolic link tidak diizinkan.");
     if (entry.type === "Directory") continue;
     const size = Number(entry.uncompressedSize || 0);
     if (!Number.isFinite(size) || size < 0 || size > MAX_SINGLE_FILE) throw new Error("Ada file dengan ukuran ekstraksi tidak valid atau terlalu besar.");
     expanded += size;
     if (expanded > MAX_EXPANDED_BYTES) throw new Error("Ukuran hasil ekstraksi ZIP melewati batas 150 MB.");
-    files.push({ path, size, type: entry.type });
+    files.push({ path, size, type: entryType });
   }
   if (!files.length) throw new Error("Arsip ZIP tidak berisi file.");
   return { files };
