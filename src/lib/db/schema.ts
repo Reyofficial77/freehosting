@@ -27,6 +27,8 @@ export const projects = pgTable("projects", {
   rootDirectory: text("root_directory").notNull().default("/"),
   buildCommand: text("build_command"),
   outputDirectory: text("output_directory"),
+  providerProjectId: text("provider_project_id"),
+  providerProjectName: text("provider_project_name"),
   status: text("status").notNull().default("uploaded"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -40,8 +42,10 @@ export const deployments = pgTable("deployments", {
   providerDeploymentId: text("provider_deployment_id"),
   status: text("status").notNull().default("queued"),
   deploymentUrl: text("deployment_url"),
+  logsUrl: text("logs_url"),
   commitReference: text("commit_reference"),
   errorCode: text("error_code"),
+  durationMs: integer("duration_ms"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
@@ -53,12 +57,14 @@ export const domains = pgTable("domains", {
   providerDomainId: text("provider_domain_id"),
   status: text("status").notNull().default("pending"),
   httpsStatus: text("https_status").notNull().default("unknown"),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 }, t => [uniqueIndex("domains_hostname_unique").on(t.hostname), index("domains_project_idx").on(t.projectId)]);
 export const projectSettings = pgTable("project_settings", {
   projectId: uuid("project_id").primaryKey().references(() => projects.id, { onDelete: "cascade" }),
   packageManager: text("package_manager").notNull().default("npm"),
+  frameworkProvider: text("framework_provider"),
   installCommand: text("install_command"),
   buildCommand: text("build_command"),
   outputDirectory: text("output_directory"),

@@ -8,3 +8,6 @@ export function getDb() {
   const sql = neon(url);
   return drizzle(sql, { schema });
 }
+
+export type Db = NonNullable<ReturnType<typeof getDb>>;
+export { schema };

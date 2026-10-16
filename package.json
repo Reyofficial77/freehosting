@@ -9,7 +9,9 @@
     "lint": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "db:apply": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/apply-sql.mjs drizzle/0000_init.sql drizzle/0001_repair_existing_projects.sql drizzle/0002_deployment_orchestration.sql",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",

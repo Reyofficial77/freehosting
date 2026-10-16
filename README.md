@@ -1,57 +1,75 @@
-# FreeHosting — Vercel-ready application foundation
+# FreeHosting
 
-FreeHosting is a Next.js + TypeScript app based on the supplied PRD. It includes a responsive landing page, upload UI, ZIP validation, framework detection, guest-scoped project metadata, dashboard, Neon PostgreSQL schema, Drizzle ORM and health endpoint.
+FreeHosting is a Next.js + TypeScript platform that publishes a website from a ZIP archive. It validates the archive, detects the framework, deploys it to Vercel through the REST API, and maps a per-project subdomain on Neon PostgreSQL metadata.
 
-> **Honest readiness note:** the dashboard itself can be hosted on Vercel after environment configuration. This repository is not yet a complete public multi-tenant hosting provider: Vercel ZIP deployment orchestration, `*.host.my.id` domain assignment, GitHub OAuth, authenticated accounts, job queue/object storage, quotas, deployment logs, and security/load testing still need to be implemented and verified. Upload currently validates the archive and saves metadata; it does not claim to publish the uploaded website.
+This repository implements the end-to-end MVP flow defined in the PRD:
+
+**Upload ZIP → validate → detect framework → deploy to Vercel → map `slug.host.my.id` → HTTPS status → metadata in Neon.**
 
 ## Requirements
 - Node.js 20+
-- pnpm 9+ (or npm)
-- Neon PostgreSQL database
+- A Neon PostgreSQL database
+- A Vercel account token (server-side)
 
 ## Run locally (Windows PowerShell)
 ```powershell
-pnpm install
+npm install
 Copy-Item .env.example .env.local
 ```
-Set `DATABASE_URL` and a long random `SESSION_SECRET` in `.env.local`, then:
+Set the values described below in `.env.local`, then:
 ```powershell
-pnpm db:push
-pnpm dev
+npm run db:push   # or run the SQL files in ./drizzle manually
+npm run dev
 ```
 Open `http://localhost:3000`.
 
+## Environment variables
+See `.env.example`. Key values:
+- `DATABASE_URL` — Neon connection string (`sslmode=require`).
+- `SESSION_SECRET` — 32+ random characters; signs the guest cookie.
+- `DEPLOY_API_TOKEN` — Vercel token used to create deployments and map domains.
+- `DEPLOY_TEAM_ID` — team id when deploying under a team.
+- `DEPLOY_ENABLED` — set to `false` to run upload as validation-only.
+- `PROJECT_DOMAIN` — suffix for project subdomains (default `host.my.id`).
+- Quota variables — `QUOTA_*`, `MAX_UPLOAD_BYTES`.
+
+**Never expose these with a `NEXT_PUBLIC_` prefix.** The Vercel token is server-only.
+
 ## Deploy the dashboard to Vercel
 1. Push this folder to a GitHub repository.
-2. Import the repository in Vercel.
-3. Create a Neon database and copy its PostgreSQL connection string.
-4. In Vercel → Project → Settings → Environment Variables, set:
-   - `DATABASE_URL` = Neon connection string (include `sslmode=require`)
-   - `SESSION_SECRET` = a cryptographically random secret of 32+ characters
-   - `MAX_UPLOAD_BYTES` = `4194304` (optional, default 4 MiB)
-5. Deploy. Apply schema against the Neon database from your local terminal with `pnpm db:push` before testing upload.
-6. Check `/api/health`; it should return `{"ok":true,"database":"connected"}`.
+2. Import the repository in Vercel (this is the *dashboard* project — keep it separate from user projects).
+3. Add the environment variables above in Project → Settings → Environment Variables.
+4. Apply the schema to your Neon database (`npm run db:push` locally, or run the SQL in `drizzle/`).
+5. Deploy, then check `/api/health` — it should report `database: "connected"` and `deploy: "configured"`.
 
-Do not expose secrets with a `NEXT_PUBLIC_` prefix. Do not deploy publicly as a hosting service until authentication/authorization, rate limits, provider isolation, abuse handling and the end-to-end deployment flow have been implemented.
+## What is implemented
+- **Landing page** and responsive dark UI; upload form with live deployment polling.
+- **ZIP safety** (`src/lib/zip.ts`): rejects path traversal, symlinks, too many entries, oversized entries and archives that expand beyond the cap; enforces a total deployable-byte limit.
+- **Framework detection**: Next.js, Astro, Vite (React/Vue), Nuxt, Angular, Create React App, Vue CLI and static HTML, mapped to the Vercel `projectSettings.framework` enum. Common root-folder wrapping is detected.
+- **Vercel integration** (`src/lib/vercel.ts`, `src/lib/deploy.ts`): creates non-git deployments from inlined files, polls deployment state, maps the project subdomain, and cleans up provider resources on delete.
+- **Deployment lifecycle**: internal statuses (`queued`, `deploying`, `building`, `ready`, `failed`, …) synced from the provider; history and build-log links surfaced in the UI.
+- **Quotas** (`src/lib/quota.ts`): server-enforced project-count and daily-deployment limits per guest/user, configurable by environment variable.
+- **Ownership checks**: every project operation is scoped to the signed guest session to prevent IDOR.
+- **Database**: Drizzle schema and SQL migrations for users, accounts, projects, deployments, domains, project settings, usage, GitHub installations and jobs.
 
-## Included
-- Landing page and responsive styling
-- Upload form and server-side ZIP checks
-- Rejects traversal paths, symlinks, excessive entry counts, large entries and excessive total expanded size
-- Framework heuristics informed by package.json dependencies and lockfiles
-- Guest session cookie signed with HMAC; project list is scoped to that browser session
-- Dashboard with empty, database unavailable and project-list states
-- API routes: `POST /api/upload`, `GET /api/projects`, `GET /api/health`
-- Drizzle schema and initial SQL for users, accounts, projects, deployments, domains, project settings, usage, GitHub installations and jobs
+## API
+- `POST /api/upload` — validate, detect, persist and deploy a ZIP.
+- `GET /api/projects` — list the caller's projects with latest deployment status.
+- `GET /api/projects/{id}` — project detail (ownership enforced).
+- `PATCH /api/projects/{id}` — rename, change slug (re-maps the domain) and build settings.
+- `DELETE /api/projects/{id}` — remove provider projects/domains/deployments and the record.
+- `POST /api/projects/{id}/redeploy` — new deployment from the last provider deployment.
+- `GET /api/deployments/{id}` — refresh and return a deployment's status/domain.
+- `GET /api/health` — database and deploy-configuration status.
 
-## Important implementation limitations
-- ZIP content is inspected in memory; a production system should use object storage and background jobs.
-- Guest session projects are not claimable by an account yet.
-- The schema is prepared for future auth but OAuth/session login is not implemented.
-- Framework detection is heuristic; it does not execute user scripts.
-- No uploaded user code is run in this app's API process.
-- Vercel token/project/domain environment variables are not used to deploy projects yet; do not assume a project URL or custom domain exists until provider integration is completed.
+## Known limitations (honest readiness notes)
+- **Registered accounts and GitHub import are not implemented yet.** Every caller is a guest scoped by a signed cookie; the schema already models `users`, `auth_accounts` and `github_installations` for the next phase. Guests cannot claim projects to an account yet.
+- **No object storage / queue worker.** Files are materialized in memory for the deploy request; large projects rely on the Vercel inline-file path. A production system should use object storage plus a background job queue (the `jobs` table is present but processing is synchronous).
+- **Domain mapping requires DNS.** The wildcard `*.host.my.id` must be configured in Vercel for `PROJECT_DOMAIN`; the API only registers the hostname with the provider. HTTPS verification is reported from the provider and is not guaranteed until DNS propagates.
+- **Framework detection is heuristic** and does not execute user scripts; a successful detection does not guarantee a successful build.
+- **No uploaded user code is executed** in this app's API process.
+- **Admin tooling, abuse reporting, monitoring and rate limiting beyond quotas are still to be built.**
 
-### Memperbaiki database Neon yang sudah ada
-
-Jika upload gagal dengan `Failed query: insert into "projects"`, jalankan SQL dari `drizzle/0001_repair_existing_projects.sql` di Neon SQL Editor, lalu coba upload kembali. Migrasi ini memakai `ADD COLUMN IF NOT EXISTS` agar aman dijalankan ulang. Pastikan tabel `projects` memang tabel milik aplikasi ini.
+## Migration notes
+- `drizzle/0002_deployment_orchestration.sql` adds provider tracking columns and quota indexes. It is additive and safe to re-run.
+- If upload previously failed with `Failed query: insert into "projects"`, run `drizzle/0001_repair_existing_projects.sql` in the Neon SQL editor first.
