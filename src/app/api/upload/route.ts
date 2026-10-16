@@ -34,9 +34,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Ukuran ZIP melewati batas ${Math.floor(policy.maxUploadBytes / 1024 / 1024)} MB.` }, { status: 413 });
     }
     const override = form.get("name");
+    const str = (key: string): string | null => {
+      const value = form.get(key);
+      return typeof value === "string" && value.trim() ? value.trim().slice(0, 256) : null;
+    };
+    const buildOverride = str("buildCommand");
+    const outputOverride = str("outputDirectory");
+    const rootOverride = str("rootDirectory");
+    const installOverride = str("installCommand");
+    const packageOverride = str("packageManager");
     const bytes = Buffer.from(await value.arrayBuffer());
     const inspection = await inspectZip(bytes);
-    const detected = inspection.detected;
+    const base = inspection.detected;
+    const rootDirectory = rootOverride || inspection.rootDirectory || "/";
+    const detected = {
+      ...base,
+      buildCommand: buildOverride ?? base.buildCommand,
+      outputDirectory: outputOverride ?? base.outputDirectory,
+      installCommand: installOverride ?? base.installCommand,
+      packageManager: packageOverride ?? base.packageManager
+    };
 
     const db = await loadDb();
     if (!db) return NextResponse.json({ error: "Database belum dikonfigurasi. Atur DATABASE_URL sebelum membuat proyek." }, { status: 503 });
@@ -65,7 +82,7 @@ export async function POST(req: NextRequest) {
             framework: detected.framework,
             sourceType: "zip",
             sourceReference: null,
-            rootDirectory: inspection.rootDirectory || "/",
+            rootDirectory,
             buildCommand: detected.buildCommand || null,
             outputDirectory: detected.outputDirectory || null,
             status: "detected",
@@ -80,7 +97,7 @@ export async function POST(req: NextRequest) {
           installCommand: detected.installCommand,
           buildCommand: detected.buildCommand || null,
           outputDirectory: detected.outputDirectory || null,
-          rootDirectory: inspection.rootDirectory || "/"
+          rootDirectory
         });
         break;
       } catch (error) {
@@ -128,8 +145,9 @@ export async function POST(req: NextRequest) {
         detection: {
           buildCommand: detected.buildCommand,
           outputDirectory: detected.outputDirectory,
-          rootDirectory: inspection.rootDirectory || "/",
-          packageManager: detected.packageManager
+          rootDirectory,
+          packageManager: detected.packageManager,
+          installCommand: detected.installCommand
         },
         message
       },
