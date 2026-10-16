@@ -72,10 +72,9 @@ export default function DeployPage() {
   const [systemsOk, setSystemsOk] = useState<boolean | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [deployState, setDeployState] = useState<string | null>(null);
-  const [deployUrl, setDeployUrl] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -193,8 +192,8 @@ export default function DeployPage() {
       };
       if (!response.ok) throw new Error(json.error || "Deploy gagal.");
       const id = json.deployment?.id;
+      setProjectId(json.project?.id ?? null);
       setDeployState(json.deployment?.status ?? null);
-      setDeployUrl(json.deployment?.url ?? null);
       if (!id || isTerminal(json.deployment?.status)) {
         if (json.deployment?.status !== "ready") setDeployError(json.deployment?.errorCode ?? "Deployment selesai dengan status tidak aktif.");
         setDeploying(false);
@@ -207,7 +206,6 @@ export default function DeployPage() {
           const body = (await poll.json()) as { deployment?: { status: string; deploymentUrl: string | null; errorCode: string | null } };
           if (body.deployment) {
             setDeployState(body.deployment.status);
-            setDeployUrl(body.deployment.deploymentUrl);
             if (isTerminal(body.deployment.status)) {
               if (timer.current) clearInterval(timer.current);
               timer.current = null;
@@ -225,19 +223,6 @@ export default function DeployPage() {
       setDeployState("failed");
       setDeploying(false);
     }
-  }
-
-  async function copyUrl() {
-    if (!deployUrl) return;
-    try {
-      await navigator.clipboard.writeText(deployUrl);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-      say("Salin manual URL di atas.");
-      return;
-    }
-    setTimeout(() => setCopied(false), 1800);
   }
 
   const steps = ["Upload / Import", "Framework", "Configuration", "Deploy"];
@@ -389,7 +374,7 @@ export default function DeployPage() {
                 placeholder="contoh: portfolio-rey"
                 className="w-full border border-[#3a3a3a] bg-black px-3 py-2.5 text-sm text-white placeholder:text-[#555] focus:border-white focus:outline-none"
               />
-              <p className="mt-1 text-[11px] text-[#666]">URL: {(slugifyName(name) || "nama-project")}.vercel.app</p>
+              <p className="mt-1 text-[11px] text-[#666]">Slug: {(slugifyName(name) || "nama-project")} · pratinjau di dashboard setelah deploy</p>
             </div>
             <div>
               <label htmlFor="frameworkSelect" className="mb-1.5 block text-xs text-[#929292]">Framework</label>
@@ -476,16 +461,19 @@ export default function DeployPage() {
                 {deployState === "ready" ? "Deploy berhasil" : deployState === "failed" ? "Deploy gagal" : "Deploy sedang diproses…"}
               </span>
             </div>
-            {deployUrl && (
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border border-[#292929] bg-[#080808] p-4">
-                <a href={deployUrl} target="_blank" rel="noreferrer" className="break-all text-sm underline underline-offset-4 hover:text-[#ccc]">
-                  {deployUrl.replace(/^https?:\/\//, "")}
-                </a>
-                <button type="button" onClick={copyUrl} className="shrink-0 border border-[#3a3a3a] px-3 py-1.5 text-xs transition hover:border-white">
-                  {copied ? "Tersalin ✓" : "Salin URL"}
-                </button>
+            {deployState === "ready" && projectId ? (
+              <div className="mt-4 border border-[#292929] bg-[#080808] p-4">
+                <p className="text-xs leading-6 text-[#929292]">
+                  Website aktif dan bisa dipratinjau dari halaman proyek di dashboard ini.
+                </p>
+                <Link
+                  href={`/projects/${projectId}`}
+                  className="mt-3 inline-block bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#ddd]"
+                >
+                  Buka halaman proyek →
+                </Link>
               </div>
-            )}
+            ) : null}
             {deployError && <p className="mt-3 text-xs leading-relaxed text-red-300">{deployError}</p>}
             {deployState !== "ready" && deployState !== "failed" && (
               <p className="mt-3 text-xs text-[#929292]">Status diperbarui otomatis. Jangan tutup halaman ini.</p>

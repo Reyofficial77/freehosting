@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 
-export default function CopyButton({ value, label = "Salin" }: { value: string; label?: string }) {
+export default function CopyButton({ value, label = "Salin" }: { value?: string; label?: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
+    // No value = copy this dashboard page's URL, keeping users inside the app.
+    const text = value ?? window.location.href;
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(text);
     } catch {
       const el = document.createElement("textarea");
-      el.value = value;
+      el.value = text;
       document.body.appendChild(el);
       el.select();
       document.execCommand("copy");
@@ -25,7 +27,7 @@ export default function CopyButton({ value, label = "Salin" }: { value: string; 
       type="button"
       onClick={copy}
       className="border border-[#333] bg-transparent px-2.5 py-1 text-[11px] text-white transition hover:border-white"
-      aria-label={`${label} ${value}`}
+      aria-label={label}
     >
       {copied ? "Tersalin ✓" : label}
     </button>

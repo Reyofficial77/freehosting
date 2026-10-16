@@ -31,7 +31,9 @@ See `.env.example`. Key values:
 - `DEPLOY_TEAM_ID` — team id when deploying under a team.
 - `DEPLOY_ENABLED` — set to `false` to run upload as validation-only.
 - `PROJECT_DOMAIN` — suffix for project subdomains (default `host.my.id`).
-- Quota variables — `QUOTA_*`, `MAX_UPLOAD_BYTES`.
+- Quota variables — `QUOTA_*`, `MAX_UPLOAD_BYTES` (bytes, default 50 MB).
+- Deployed sites are previewed embedded inside the dashboard (`/projects/[id]`).
+  The UI never links users out to `*.vercel.app` directly.
 
 **Never expose these with a `NEXT_PUBLIC_` prefix.** The Vercel token is server-only.
 

@@ -71,15 +71,15 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
             <div className="text-[10px] uppercase tracking-[1.5px] text-[#666]">Subdomain</div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="break-all text-sm font-medium">{hostname}</span>
-              <CopyButton value={`https://${hostname}`} label="Salin URL" />
+              <CopyButton label="Salin tautan dashboard" />
             </div>
             <div className="mt-2 text-[11px] text-[#666]">
               Domain {domain ? statusLabel(domain.status) : "belum dipetakan"} · HTTPS {domain?.httpsStatus ?? "unknown"}
             </div>
             {liveUrl && (
-              <a href={liveUrl} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs font-semibold text-white underline underline-offset-4 hover:text-[#ccc]">
-                Buka deployment ↗
-              </a>
+              <span className="mt-3 inline-block border border-[#333] px-3 py-1.5 text-[11px] text-[#929292]">
+                Pratinjau live tersedia di bawah
+              </span>
             )}
           </div>
           <div className="border border-[#292929] bg-[#080808] p-6">
@@ -91,6 +91,30 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
               <div className="flex justify-between gap-4"><dt className="text-[#929292]">Root directory</dt><dd className="break-all text-right">{project.rootDirectory || "/"}</dd></div>
             </dl>
           </div>
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[2px] text-[#929292]">Live preview</h2>
+          {liveUrl ? (
+            <div className="mt-3">
+              <div className="overflow-hidden border border-[#292929] bg-white">
+                <iframe
+                  src={liveUrl}
+                  title={`Pratinjau ${project.name}`}
+                  className="h-[480px] w-full"
+                  loading="lazy"
+                  sandbox="allow-scripts allow-same-origin allow-forms"
+                />
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-[#666]">
+                Pratinjau dimuat dari deployment aktif tanpa meninggalkan dashboard. Jika bingkai kosong, situs tersebut memblokir embed.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3 border border-[#292929] px-6 py-10 text-center text-xs text-[#666]">
+              Belum ada deployment aktif untuk dipratinjau.
+            </div>
+          )}
         </div>
 
         <div className="mt-8">
@@ -108,7 +132,6 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
                     <div className="flex items-center gap-3 text-[11px] text-[#666]">
                       {item.errorCode && <span className="text-red-300">{item.errorCode}</span>}
                       {item.logsUrl && <a href={item.logsUrl} target="_blank" rel="noreferrer" className="text-white underline underline-offset-4">Log build</a>}
-                      {item.deploymentUrl && <a href={item.deploymentUrl} target="_blank" rel="noreferrer" className="text-white underline underline-offset-4">URL</a>}
                     </div>
                   </div>
                 );

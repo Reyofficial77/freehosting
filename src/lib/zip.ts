@@ -4,7 +4,7 @@ export const ZIP_LIMITS = {
   maxEntries: 5000,
   maxExpandedBytes: 150 * 1024 * 1024,
   maxSingleFileBytes: 50 * 1024 * 1024,
-  maxDeployableBytes: 40 * 1024 * 1024
+  maxDeployableBytes: 50 * 1024 * 1024
 };
 
 export type ZipFileInfo = { path: string; size: number; type: string };

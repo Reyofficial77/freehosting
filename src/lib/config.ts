@@ -49,7 +49,7 @@ function numberFromEnv(value: string | undefined, fallback: number): number {
  * defaults; the PRD marks the final numbers as "to be tested".
  */
 export function quotaPolicyFor(actor: Actor): QuotaPolicy {
-  const maxUploadBytes = numberFromEnv(process.env.MAX_UPLOAD_BYTES, 5 * 1024 * 1024);
+  const maxUploadBytes = numberFromEnv(process.env.MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
   if (actor === "user") {
     return {
       activeProjects: numberFromEnv(process.env.QUOTA_USER_PROJECTS, 10),
