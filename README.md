@@ -53,7 +53,8 @@ See `.env.example`. Key values:
 - **Database**: Drizzle schema and SQL migrations for users, accounts, projects, deployments, domains, project settings, usage, GitHub installations and jobs.
 
 ## API
-- `POST /api/upload` — validate, detect, persist and deploy a ZIP.
+- `POST /api/detect` — inspect a ZIP (file or import URL) and return framework detection, no DB write.
+- `POST /api/upload` — validate, detect, persist and deploy a ZIP. Accepts optional `buildCommand`, `outputDirectory`, `rootDirectory`, `installCommand`, `packageManager` overrides.
 - `GET /api/projects` — list the caller's projects with latest deployment status.
 - `GET /api/projects/{id}` — project detail (ownership enforced).
 - `PATCH /api/projects/{id}` — rename, change slug (re-maps the domain) and build settings.
