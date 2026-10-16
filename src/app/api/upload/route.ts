@@ -43,12 +43,37 @@ export async function POST(req: NextRequest) {
     const rootOverride = str("rootDirectory");
     const installOverride = str("installCommand");
     const packageOverride = str("packageManager");
+    const frameworkOverride = str("framework");
+    const frameworkProviderOverride = str("frameworkProvider");
     const bytes = Buffer.from(await value.arrayBuffer());
     const inspection = await inspectZip(bytes);
     const base = inspection.detected;
     const rootDirectory = rootOverride || inspection.rootDirectory || "/";
+    const allowedProviders = new Set([
+      "nextjs",
+      "create-react-app",
+      "nuxtjs",
+      "gatsby",
+      "vue",
+      "angular",
+      "ember",
+      "vite",
+      "astro",
+      "sveltekit",
+      "svelte",
+      "solidstart",
+      "remix",
+      "hugo"
+    ]);
     const detected = {
       ...base,
+      framework: frameworkOverride || base.framework,
+      vercelFramework:
+        frameworkProviderOverride && allowedProviders.has(frameworkProviderOverride)
+          ? frameworkProviderOverride
+          : frameworkOverride
+            ? null
+            : base.vercelFramework,
       buildCommand: buildOverride ?? base.buildCommand,
       outputDirectory: outputOverride ?? base.outputDirectory,
       installCommand: installOverride ?? base.installCommand,

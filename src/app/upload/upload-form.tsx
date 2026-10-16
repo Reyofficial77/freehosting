@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { isTerminal, statusLabel, statusTone, toneClasses } from "@/lib/status";
+import { isTerminal } from "@/lib/status";
 
 type Detection = {
   framework: string;
@@ -21,405 +21,492 @@ type DetectResponse = {
   error?: string;
 };
 
-type UploadResponse = {
-  project?: { id: string; name: string; slug: string; framework: string; status: string };
-  deployment?: { id: string | null; status: string; url: string | null; errorCode: string | null };
-  hostname?: string;
-  message?: string;
-  error?: string;
-};
+const FRAMEWORK_OPTIONS = [
+  "Auto-detect",
+  "Next.js",
+  "React / Vite",
+  "Vue",
+  "Svelte",
+  "Astro",
+  "HTML / CSS / JS",
+  "Node.js",
+  "Other"
+];
 
-type Step = 1 | 2 | 3 | 4;
-
-const STEP_LABELS = ["Upload", "Detecting", "Configuration", "Deploy"];
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+/** Manual framework choice → Vercel projectSettings.framework (null = auto). */
+function providerFor(label: string): string | null {
+  switch (label) {
+    case "Next.js":
+      return "nextjs";
+    case "React / Vite":
+      return "vite";
+    case "Vue":
+      return "vue";
+    case "Svelte":
+      return "sveltekit";
+    case "Astro":
+      return "astro";
+    default:
+      return null;
+  }
 }
 
-export default function UploadWizard() {
-  const [step, setStep] = useState<Step>(1);
-  const [tab, setTab] = useState<"file" | "url">("file");
-  const [file, setFile] = useState<File | null>(null);
-  const [url, setUrl] = useState("");
-  const [detecting, setDetecting] = useState(false);
-  const [detectError, setDetectError] = useState<string | null>(null);
-  const [detected, setDetected] = useState<DetectResponse | null>(null);
+function formatMB(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
 
-  // Step 3 — editable configuration.
-  const [name, setName] = useState("");
-  const [buildCommand, setBuildCommand] = useState("");
-  const [outputDirectory, setOutputDirectory] = useState("");
+export default function DeployPage() {
+  const [file, setFile] = useState<File | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detected, setDetected] = useState<DetectResponse | null>(null);
+  const [manualFramework, setManualFramework] = useState("Auto-detect");
+
+  const [name, setName] = useState("my-project");
+  const [buildCommand, setBuildCommand] = useState("npm run build");
+  const [outputDir, setOutputDir] = useState("dist");
+  const [advanced, setAdvanced] = useState(false);
   const [rootDirectory, setRootDirectory] = useState("/");
   const [packageManager, setPackageManager] = useState("npm");
-  const [installCommand, setInstallCommand] = useState("");
 
-  // Step 4 — deploy state.
+  const [maxBytes, setMaxBytes] = useState<number | null>(null);
+  const [systemsOk, setSystemsOk] = useState<boolean | null>(null);
   const [deploying, setDeploying] = useState(false);
-  const [result, setResult] = useState<UploadResponse | null>(null);
-  const [liveStatus, setLiveStatus] = useState<string | null>(null);
-  const [liveUrl, setLiveUrl] = useState<string | null>(null);
-  const [liveError, setLiveError] = useState<string | null>(null);
+  const [deployState, setDeployState] = useState<string | null>(null);
+  const [deployUrl, setDeployUrl] = useState<string | null>(null);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [showResult, setShowResult] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  // Live-poll the deployment once created.
   useEffect(() => {
-    const id = result?.deployment?.id;
-    setLiveStatus(result?.deployment?.status ?? null);
-    setLiveUrl(result?.deployment?.url ?? null);
-    setLiveError(result?.deployment?.errorCode ?? null);
-    if (!id || isTerminal(result?.deployment?.status)) return;
-    timer.current = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/deployments/${id}`);
-        if (!response.ok) return;
-        const json = (await response.json()) as { deployment?: { status: string; deploymentUrl: string | null; errorCode: string | null } };
-        if (json.deployment) {
-          setLiveStatus(json.deployment.status);
-          setLiveUrl(json.deployment.deploymentUrl);
-          setLiveError(json.deployment.errorCode);
-          if (isTerminal(json.deployment.status) && timer.current) {
-            clearInterval(timer.current);
-            timer.current = null;
-          }
-        }
-      } catch {
-        /* keep polling */
-      }
-    }, 4000);
+    fetch("/api/health")
+      .then(r => r.json())
+      .then((j: { ok?: boolean; maxUploadBytes?: number }) => {
+        setSystemsOk(Boolean(j.ok));
+        if (typeof j.maxUploadBytes === "number") setMaxBytes(j.maxUploadBytes);
+      })
+      .catch(() => setSystemsOk(false));
     return () => {
       if (timer.current) clearInterval(timer.current);
-      timer.current = null;
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
-  }, [result]);
+  }, []);
 
-  function resetAll() {
-    setStep(1);
-    setFile(null);
-    setUrl("");
-    setDetected(null);
-    setDetectError(null);
-    setResult(null);
+  function say(message: string) {
+    setToast(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
   }
 
-  /** Step 1 → 2: send the archive to /api/detect (no DB write). */
-  async function runDetection() {
+  const effectiveFramework =
+    manualFramework !== "Auto-detect"
+      ? manualFramework
+      : detected?.detection.framework ?? null;
+
+  const currentStep = showResult ? 4 : detected ? 3 : file || detecting ? 2 : 1;
+
+  async function acceptFile(next: File | null) {
+    if (!next) return;
+    if (!next.name.toLowerCase().endsWith(".zip")) {
+      say("Pilih file ZIP yang valid.");
+      return;
+    }
+    if (maxBytes && next.size > maxBytes) {
+      say(`Ukuran file melebihi batas ${formatMB(maxBytes)}.`);
+      return;
+    }
+    setFile(next);
+    setDetected(null);
+    setShowResult(false);
+    setDeployError(null);
     setDetecting(true);
-    setDetectError(null);
     try {
       const data = new FormData();
-      if (tab === "file") {
-        if (!file) return;
-        data.set("file", file);
-      } else {
-        if (!url.trim()) {
-          setDetectError("Tempel URL file .zip terlebih dahulu.");
-          return;
-        }
-        data.set("url", url.trim());
-      }
+      data.set("file", next);
       const response = await fetch("/api/detect", { method: "POST", body: data });
       const json = (await response.json()) as DetectResponse;
       if (!response.ok) throw new Error(json.error || "Deteksi gagal.");
       setDetected(json);
-      // Prefill configuration from detection.
-      setName(prev => prev || json.filename.replace(/\.zip$/i, ""));
-      setBuildCommand(json.detection.buildCommand);
-      setOutputDirectory(json.detection.outputDirectory);
+      setName(prev => (prev === "my-project" || !prev ? json.filename.replace(/\.zip$/i, "").slice(0, 50) || "my-project" : prev));
+      setBuildCommand(json.detection.buildCommand || "npm run build");
+      setOutputDir(json.detection.outputDirectory || "dist");
       setRootDirectory(json.rootDirectory);
       setPackageManager(json.detection.packageManager);
-      setInstallCommand(json.detection.installCommand);
-      setStep(3);
+      say(`Framework terdeteksi: ${json.detection.framework}.`);
     } catch (error) {
-      setDetectError(error instanceof Error ? error.message : "Deteksi gagal.");
+      say(error instanceof Error ? error.message : "Deteksi gagal.");
     } finally {
       setDetecting(false);
     }
   }
 
-  /** Step 3 → 4: deploy with the edited configuration. */
-  async function runDeploy() {
+  function clearFile() {
+    setFile(null);
+    setDetected(null);
+    setShowResult(false);
+    setManualFramework("Auto-detect");
+    if (inputRef.current) inputRef.current.value = "";
+    say("File dihapus.");
+  }
+
+  function slugifyName(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
+  }
+
+  async function deploy() {
+    const clean = slugifyName(name);
+    if (!file) {
+      say("Upload file ZIP project terlebih dahulu.");
+      return;
+    }
+    if (!clean) {
+      say("Isi nama project terlebih dahulu.");
+      return;
+    }
     setDeploying(true);
-    setResult(null);
+    setDeployError(null);
+    setDeployState("deploying");
+    setShowResult(true);
     try {
       const data = new FormData();
-      if (tab === "file") {
-        if (!file) return;
-        data.set("file", file);
-      } else {
-        // Re-download server-side from the same URL at deploy time.
-        const fetched = await fetch(url.trim());
-        const blob = await fetched.blob();
-        data.set("file", new File([blob], detected?.filename || "imported.zip", { type: "application/zip" }));
-      }
-      if (name.trim()) data.set("name", name.trim());
+      data.set("file", file);
+      data.set("name", clean);
       data.set("buildCommand", buildCommand);
-      data.set("outputDirectory", outputDirectory);
+      data.set("outputDirectory", outputDir);
       data.set("rootDirectory", rootDirectory || "/");
-      data.set("installCommand", installCommand);
       data.set("packageManager", packageManager);
+      if (manualFramework !== "Auto-detect") {
+        data.set("framework", manualFramework);
+        const provider = providerFor(manualFramework);
+        if (provider) data.set("frameworkProvider", provider);
+      }
       const response = await fetch("/api/upload", { method: "POST", body: data });
-      const json = (await response.json()) as UploadResponse;
-      setResult(json);
-      setStep(4);
-    } catch {
-      setResult({ error: "Koneksi gagal. Periksa server lalu coba kembali." });
-      setStep(4);
-    } finally {
+      const json = (await response.json()) as {
+        project?: { id: string };
+        deployment?: { id: string | null; status: string; url: string | null; errorCode: string | null };
+        error?: string;
+      };
+      if (!response.ok) throw new Error(json.error || "Deploy gagal.");
+      const id = json.deployment?.id;
+      setDeployState(json.deployment?.status ?? null);
+      setDeployUrl(json.deployment?.url ?? null);
+      if (!id || isTerminal(json.deployment?.status)) {
+        if (json.deployment?.status !== "ready") setDeployError(json.deployment?.errorCode ?? "Deployment selesai dengan status tidak aktif.");
+        setDeploying(false);
+        return;
+      }
+      timer.current = setInterval(async () => {
+        try {
+          const poll = await fetch(`/api/deployments/${id}`);
+          if (!poll.ok) return;
+          const body = (await poll.json()) as { deployment?: { status: string; deploymentUrl: string | null; errorCode: string | null } };
+          if (body.deployment) {
+            setDeployState(body.deployment.status);
+            setDeployUrl(body.deployment.deploymentUrl);
+            if (isTerminal(body.deployment.status)) {
+              if (timer.current) clearInterval(timer.current);
+              timer.current = null;
+              setDeploying(false);
+              if (body.deployment.status === "ready") say("Website berhasil di-deploy.");
+              else setDeployError(body.deployment.errorCode ?? "Deployment gagal. Periksa log build.");
+            }
+          }
+        } catch {
+          /* keep polling */
+        }
+      }, 4000);
+    } catch (error) {
+      setDeployError(error instanceof Error ? error.message : "Deploy gagal.");
+      setDeployState("failed");
       setDeploying(false);
     }
   }
 
-  const tone = statusTone(liveStatus);
-  const inProgress = Boolean(result?.deployment?.id) && !isTerminal(liveStatus);
+  async function copyUrl() {
+    if (!deployUrl) return;
+    try {
+      await navigator.clipboard.writeText(deployUrl);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      say("Salin manual URL di atas.");
+      return;
+    }
+    setTimeout(() => setCopied(false), 1800);
+  }
+
+  const steps = ["Upload / Import", "Framework", "Configuration", "Deploy"];
 
   return (
-    <div className="mt-8">
-      {/* Stepper */}
-      <ol className="grid grid-cols-4 gap-2 text-center text-xs" aria-label="Langkah deployment">
-        {STEP_LABELS.map((label, i) => {
-          const n = (i + 1) as Step;
-          const active = step === n;
-          const done = step > n;
-          return (
-            <li
-              key={label}
-              className={`rounded-xl border px-2 py-2.5 font-medium transition ${
-                active
-                  ? "border-sky-400 bg-sky-400/10 text-sky-200"
-                  : done
-                    ? "border-emerald-900 bg-emerald-950/30 text-emerald-300"
-                    : "border-zinc-800 text-zinc-500"
-              }`}
-            >
-              <span className="mr-1.5 inline-grid h-5 w-5 place-items-center rounded-full bg-black/30 text-[11px]">
-                {done ? "✓" : n}
-              </span>
-              {label}
-            </li>
-          );
-        })}
-      </ol>
+    <div className="min-h-screen bg-black text-white">
+      <header className="flex h-[68px] items-center justify-between border-b border-[#292929] px-[clamp(20px,5vw,72px)]">
+        <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight" aria-label="FreeHosting beranda">
+          <span className="grid h-[27px] w-[27px] place-items-center border border-white text-[13px] font-extrabold">F</span>
+          <span>FreeHosting</span>
+        </Link>
+        <div className="flex items-center gap-[18px] text-xs text-[#929292]">
+          <span>
+            <i className={`mr-[7px] inline-block h-1.5 w-1.5 rounded-full ${systemsOk === false ? "bg-red-400" : "bg-white"}`} />
+            {systemsOk === null ? "Checking systems…" : systemsOk ? "All systems operational" : "Systems degraded"}
+          </span>
+          <span>v1.0</span>
+        </div>
+      </header>
 
-      <div className="mt-4 rounded-2xl border border-zinc-800 bg-[#101318] p-5 sm:p-7">
-        {/* ── STEP 1: Upload / Import ─────────────────────────── */}
-        {step === 1 && (
-          <div>
-            <h2 className="text-lg font-semibold">1. Upload / Import proyek</h2>
-            <p className="mt-1 text-sm text-zinc-400">Pilih arsip ZIP dari komputer, atau tempel URL langsung ke file ZIP.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-black/20 p-1 text-sm">
-              <button
-                type="button"
-                onClick={() => setTab("file")}
-                className={`rounded-lg px-3 py-2 font-medium transition ${tab === "file" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}
-              >
-                ⬆ Upload file
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("url")}
-                className={`rounded-lg px-3 py-2 font-medium transition ${tab === "url" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}
-              >
-                🔗 Import URL
-              </button>
-            </div>
+      <main className="mx-auto max-w-[850px] px-[22px] pb-14 pt-[58px]">
+        <p className="mb-[14px] text-[11px] uppercase tracking-[2px] text-[#929292]">Deploy workspace</p>
+        <h1 className="text-[clamp(30px,5vw,45px)] font-semibold leading-[1.08] tracking-[-2px]">
+          Dari source code<br />menjadi website.
+        </h1>
+        <p className="mb-[34px] mt-[15px] max-w-[540px] text-sm leading-[1.7] text-[#929292]">
+          Upload project kamu, periksa konfigurasi, lalu deploy. Semua proses ada di satu tempat, tanpa pengaturan yang rumit.
+        </p>
 
-            {tab === "file" ? (
+        <div className="mb-7 grid grid-cols-2 border border-[#292929] sm:grid-cols-4" aria-label="Tahapan deploy">
+          {steps.map((label, i) => {
+            const n = i + 1;
+            const done = currentStep > n;
+            const active = currentStep === n;
+            return (
               <div
-                onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={e => {
-                  e.preventDefault();
-                  setDragging(false);
-                  const dropped = e.dataTransfer.files?.[0];
-                  if (dropped?.name.toLowerCase().endsWith(".zip")) setFile(dropped);
-                }}
-                className={`mt-4 rounded-xl border border-dashed p-6 text-center transition ${
-                  dragging ? "border-sky-400 bg-sky-400/10" : "border-zinc-700 bg-black/20"
+                key={label}
+                className={`flex items-center gap-[9px] border-[#292929] p-[13px_12px] text-[11px] max-sm:[&:nth-child(odd)]:border-r sm:border-r sm:last:border-r-0 ${
+                  active ? "bg-[#0a0a0a] text-white" : done ? "text-[#cfcfcf]" : "text-[#777]"
                 }`}
               >
-                <input
-                  ref={inputRef}
-                  type="file"
-                  accept=".zip,application/zip"
-                  className="sr-only"
-                  aria-label="Pilih file ZIP"
-                  onChange={e => setFile(e.target.files?.[0] ?? null)}
-                />
-                {file ? (
-                  <div className="flex flex-col items-center gap-3 text-sm">
-                    <span className="grid h-11 w-11 place-items-center rounded-xl bg-sky-300/15 text-lg text-sky-300">🗜</span>
-                    <div>
-                      <p className="break-all font-medium">{file.name}</p>
-                      <p className="mt-1 text-xs text-zinc-500">{formatBytes(file.size)}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => inputRef.current?.click()} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:border-zinc-500">Ganti</button>
-                      <button type="button" onClick={() => setFile(null)} className="rounded-lg border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Hapus</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-sm">
-                    <p className="font-medium">Seret file ZIP ke sini</p>
-                    <p className="mt-1 text-xs text-zinc-500">atau</p>
-                    <button type="button" onClick={() => inputRef.current?.click()} className="mt-3 rounded-lg bg-zinc-100 px-4 py-2 text-xs font-semibold text-black hover:bg-white">
-                      Pilih file
-                    </button>
-                  </div>
-                )}
+                <b className={`grid h-[22px] w-[22px] place-items-center border text-[10px] font-medium ${active ? "border-white" : "border-[#383838]"}`}>
+                  {done ? "✓" : String(n).padStart(2, "0")}
+                </b>
+                {label}
               </div>
-            ) : (
-              <div className="mt-4">
-                <label htmlFor="import-url" className="mb-2 block text-sm font-medium">URL file ZIP</label>
-                <input
-                  id="import-url"
-                  value={url}
-                  onChange={e => setUrl(e.target.value)}
-                  placeholder="https://example.com/proyek.zip"
-                  inputMode="url"
-                  className="block w-full rounded-xl border border-zinc-700 bg-black/20 px-4 py-3 text-sm placeholder:text-zinc-600 focus:border-sky-400"
-                />
-                <p className="mt-2 text-xs text-zinc-500">Server akan mengunduh dan memeriksa arsip sebelum deploy.</p>
-              </div>
-            )}
+            );
+          })}
+        </div>
 
-            {detectError && (
-              <div className="mt-4 rounded-xl border border-red-900 bg-red-950/30 p-3 text-sm text-red-200" role="alert">
-                {detectError}
-              </div>
-            )}
-
-            <button
-              onClick={runDetection}
-              disabled={detecting || (tab === "file" ? !file : !url.trim())}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 py-3 font-semibold text-black transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {detecting && <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/30 border-t-black" aria-hidden />}
-              {detecting ? "Mendeteksi framework…" : "Lanjut: deteksi framework →"}
-            </button>
+        {/* STEP 01 — Upload */}
+        <section className="mb-[14px] border border-[#292929] p-6" aria-label="Upload project">
+          <div className="mb-[19px] flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">Upload project</h2>
+              <p className="mt-1 text-xs leading-relaxed text-[#929292]">Pilih arsip ZIP dari perangkat kamu.</p>
+            </div>
+            <span className="shrink-0 text-[10px] uppercase tracking-[1.5px] text-[#666]">Step 01</span>
           </div>
-        )}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); acceptFile(e.dataTransfer.files?.[0] ?? null); }}
+            onClick={() => inputRef.current?.click()}
+            className={`cursor-pointer border border-dashed p-8 text-center transition ${dragging ? "border-white bg-[#0a0a0a]" : "border-[#3a3a3a] hover:border-[#666]"}`}
+          >
+            <div className="mx-auto mb-3 grid h-10 w-10 place-items-center border border-[#3a3a3a] text-lg">↑</div>
+            <p className="text-sm font-medium">Drag &amp; drop file project di sini</p>
+            <p className="mt-1 text-xs text-[#929292]">ZIP archive{maxBytes ? ` · Maksimal ${formatMB(maxBytes)}` : ""}</p>
+            <span className="mt-4 inline-block border border-[#3a3a3a] px-4 py-2 text-xs font-medium transition hover:border-white">
+              Pilih file ZIP
+            </span>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              aria-label="Pilih file ZIP"
+              onChange={e => acceptFile(e.target.files?.[0] ?? null)}
+            />
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-[#929292]">
+            <span>{file ? formatMB(file.size) : "Belum ada file dipilih"}</span>
+            <div className="flex items-center gap-2">
+              {file && (
+                <span className="flex items-center gap-2 text-white">
+                  <span className="border border-[#3a3a3a] px-1.5 py-0.5 text-[10px]">ZIP</span>
+                  <span className="max-w-[220px] truncate">{file.name}</span>
+                </span>
+              )}
+              {file && (
+                <button type="button" onClick={clearFile} className="border border-[#3a3a3a] px-2 py-1 text-[11px] transition hover:border-white">
+                  Hapus
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
 
-        {/* ── STEP 2 is automatic (detecting spinner state above).
-             STEP 3: Configuration ────────────────────────────── */}
-        {step === 3 && detected && (
-          <div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">3. Konfigurasi</h2>
-              <span className="rounded-full border border-sky-900 bg-sky-950/40 px-3 py-1 text-xs text-sky-300">
-                {detected.detection.framework} · {detected.fileCount} file
+        {/* STEP 02 — Framework */}
+        <section className="mb-[14px] border border-[#292929] p-6" aria-label="Framework detection" aria-live="polite">
+          <div className="mb-[19px] flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">Framework detection</h2>
+              <p className="mt-1 text-xs leading-relaxed text-[#929292]">
+                {file ? "Hasil deteksi dari isi arsip, bukan tebakan nama file." : "Pilih file project untuk memulai deteksi framework."}
+              </p>
+            </div>
+            <span className="shrink-0 text-[10px] uppercase tracking-[1.5px] text-[#666]">Step 02</span>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border border-[#292929] bg-[#080808] p-4">
+            <div className="flex items-center gap-3">
+              <span className="grid h-9 w-9 place-items-center border border-[#3a3a3a] text-sm font-bold">
+                {detecting ? "…" : (effectiveFramework?.charAt(0) ?? "?")}
+              </span>
+              <span className="text-sm">
+                {detecting ? "Mendeteksi framework…" : (effectiveFramework ?? "Menunggu project...")}
+                {detected && manualFramework === "Auto-detect" && (
+                  <span className="block text-[11px] text-[#666]">{detected.fileCount} file · root {detected.rootDirectory}</span>
+                )}
+                {manualFramework !== "Auto-detect" && (
+                  <span className="block text-[11px] text-[#666]">Pilihan manual</span>
+                )}
               </span>
             </div>
-            <p className="mt-1 text-sm text-zinc-400">
-              Terdeteksi dari <span className="break-all font-medium text-zinc-300">{detected.filename}</span>. Sesuaikan bila perlu, lalu deploy.
-            </p>
+            <span className={`border px-2.5 py-1 text-[11px] ${detected || manualFramework !== "Auto-detect" ? "border-white text-white" : "border-[#3a3a3a] text-[#777]"}`}>
+              {detecting ? "Detecting…" : detected || manualFramework !== "Auto-detect" ? "Detected" : "Not detected"}
+            </span>
+          </div>
+        </section>
 
-            <div className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <label htmlFor="cfg-name" className="mb-1 block text-zinc-400">Nama proyek</label>
-                <input id="cfg-name" value={name} onChange={e => setName(e.target.value)} placeholder="mis. portofolio-saya"
-                  className="w-full rounded-lg border border-zinc-700 bg-black/20 px-3 py-2.5 focus:border-sky-400" />
+        {/* STEP 03 — Configuration */}
+        <section className="mb-[14px] border border-[#292929] p-6" aria-label="Configuration">
+          <div className="mb-[19px] flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">Configuration</h2>
+              <p className="mt-1 text-xs leading-relaxed text-[#929292]">Sesuaikan nama website dan perintah build jika diperlukan.</p>
+            </div>
+            <span className="shrink-0 text-[10px] uppercase tracking-[1.5px] text-[#666]">Step 03</span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="projectName" className="mb-1.5 block text-xs text-[#929292]">Nama project</label>
+              <input
+                id="projectName"
+                value={name}
+                maxLength={50}
+                onChange={e => setName(slugifyName(e.target.value))}
+                placeholder="contoh: portfolio-rey"
+                className="w-full border border-[#3a3a3a] bg-black px-3 py-2.5 text-sm text-white placeholder:text-[#555] focus:border-white focus:outline-none"
+              />
+              <p className="mt-1 text-[11px] text-[#666]">URL: {(slugifyName(name) || "nama-project")}.vercel.app</p>
+            </div>
+            <div>
+              <label htmlFor="frameworkSelect" className="mb-1.5 block text-xs text-[#929292]">Framework</label>
+              <select
+                id="frameworkSelect"
+                value={manualFramework}
+                onChange={e => setManualFramework(e.target.value)}
+                className="w-full border border-[#3a3a3a] bg-black px-3 py-2.5 text-sm text-white focus:border-white focus:outline-none"
+              >
+                {FRAMEWORK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="buildCommand" className="mb-1.5 block text-xs text-[#929292]">Build command</label>
+              <input
+                id="buildCommand"
+                value={buildCommand}
+                onChange={e => setBuildCommand(e.target.value)}
+                placeholder="npm run build"
+                className="w-full border border-[#3a3a3a] bg-black px-3 py-2.5 text-sm text-white placeholder:text-[#555] focus:border-white focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="outputDir" className="mb-1.5 block text-xs text-[#929292]">Output directory</label>
+              <input
+                id="outputDir"
+                value={outputDir}
+                onChange={e => setOutputDir(e.target.value)}
+                placeholder="dist atau build"
+                className="w-full border border-[#3a3a3a] bg-black px-3 py-2.5 text-sm text-white placeholder:text-[#555] focus:border-white focus:outline-none"
+              />
+            </div>
+          </div>
+          <button type="button" onClick={() => setAdvanced(v => !v)} className="mt-4 text-xs text-[#929292] underline underline-offset-4 hover:text-white" aria-expanded={advanced}>
+            {advanced ? "Sembunyikan pengaturan lanjutan" : "Pengaturan lanjutan (root, package manager)"}
+          </button>
+          {advanced && (
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="rootDir" className="mb-1.5 block text-xs text-[#929292]">Root directory</label>
+                <input
+                  id="rootDir"
+                  value={rootDirectory}
+                  onChange={e => setRootDirectory(e.target.value)}
+                  placeholder="/"
+                  className="w-full border border-[#3a3a3a] bg-black px-3 py-2.5 text-sm text-white placeholder:text-[#555] focus:border-white focus:outline-none"
+                />
               </div>
               <div>
-                <label htmlFor="cfg-build" className="mb-1 block text-zinc-400">Build command</label>
-                <input id="cfg-build" value={buildCommand} onChange={e => setBuildCommand(e.target.value)} placeholder="Otomatis"
-                  className="w-full rounded-lg border border-zinc-700 bg-black/20 px-3 py-2.5 focus:border-sky-400" />
-              </div>
-              <div>
-                <label htmlFor="cfg-output" className="mb-1 block text-zinc-400">Output directory</label>
-                <input id="cfg-output" value={outputDirectory} onChange={e => setOutputDirectory(e.target.value)} placeholder="Otomatis"
-                  className="w-full rounded-lg border border-zinc-700 bg-black/20 px-3 py-2.5 focus:border-sky-400" />
-              </div>
-              <div>
-                <label htmlFor="cfg-root" className="mb-1 block text-zinc-400">Root directory</label>
-                <input id="cfg-root" value={rootDirectory} onChange={e => setRootDirectory(e.target.value)} placeholder="/"
-                  className="w-full rounded-lg border border-zinc-700 bg-black/20 px-3 py-2.5 focus:border-sky-400" />
-              </div>
-              <div>
-                <label htmlFor="cfg-pm" className="mb-1 block text-zinc-400">Package manager</label>
-                <select id="cfg-pm" value={packageManager} onChange={e => setPackageManager(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-black/20 px-3 py-2.5 focus:border-sky-400">
+                <label htmlFor="packageManager" className="mb-1.5 block text-xs text-[#929292]">Package manager</label>
+                <select
+                  id="packageManager"
+                  value={packageManager}
+                  onChange={e => setPackageManager(e.target.value)}
+                  className="w-full border border-[#3a3a3a] bg-black px-3 py-2.5 text-sm text-white focus:border-white focus:outline-none"
+                >
                   {["npm", "pnpm", "yarn", "bun"].map(pm => <option key={pm} value={pm}>{pm}</option>)}
                 </select>
               </div>
-              <div className="sm:col-span-2">
-                <label htmlFor="cfg-install" className="mb-1 block text-zinc-400">Install command</label>
-                <input id="cfg-install" value={installCommand} onChange={e => setInstallCommand(e.target.value)} placeholder="Otomatis"
-                  className="w-full rounded-lg border border-zinc-700 bg-black/20 px-3 py-2.5 focus:border-sky-400" />
-              </div>
             </div>
+          )}
+        </section>
 
-            <div className="mt-6 flex gap-3">
-              <button onClick={() => setStep(1)} className="rounded-xl border border-zinc-700 px-5 py-3 text-sm font-medium transition hover:border-zinc-500">
-                ← Kembali
-              </button>
-              <button
-                onClick={runDeploy}
-                disabled={deploying}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 py-3 font-semibold text-black transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {deploying && <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/30 border-t-black" aria-hidden />}
-                {deploying ? "Mendeploy…" : "Deploy sekarang 🚀"}
-              </button>
+        {/* Deploy bar */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <span className="text-xs text-[#666]">◇ Simple setup · No shadow, no clutter</span>
+          <button
+            onClick={deploy}
+            disabled={!file || deploying || detecting}
+            className="bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-[#ddd] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {deploying ? "Deploying…" : "Deploy project →"}
+          </button>
+        </div>
+
+        {/* Result */}
+        {showResult && (
+          <div className="mt-[14px] border border-[#292929] p-6" aria-live="polite">
+            <div className="flex items-center gap-3">
+              <span className={`grid h-8 w-8 place-items-center border text-sm ${deployState === "ready" ? "border-white" : deployState === "failed" ? "border-red-400 text-red-300" : "border-[#3a3a3a]"}`}>
+                {deployState === "ready" ? "✓" : deployState === "failed" ? "!" : "…"}
+              </span>
+              <span className="text-sm font-semibold">
+                {deployState === "ready" ? "Deploy berhasil" : deployState === "failed" ? "Deploy gagal" : "Deploy sedang diproses…"}
+              </span>
             </div>
-          </div>
-        )}
-
-        {/* ── STEP 4: Deploy result ──────────────────────────── */}
-        {step === 4 && (
-          <div aria-live="polite">
-            <h2 className="text-lg font-semibold">4. Deploy</h2>
-            {!result ? (
-              <div className="mt-4 flex items-center gap-3 text-sm text-zinc-400">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-sky-300" aria-hidden />
-                Memulai deployment…
-              </div>
-            ) : result.error ? (
-              <div className="mt-4 rounded-xl border border-red-900 bg-red-950/30 p-4 text-sm text-red-200">
-                <strong>Deploy gagal</strong>
-                <p className="mt-2">{result.error}</p>
-                <button onClick={() => setStep(3)} className="mt-4 rounded-lg border border-zinc-700 px-4 py-2 text-xs hover:border-zinc-500">
-                  ← Kembali ke konfigurasi
+            {deployUrl && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border border-[#292929] bg-[#080808] p-4">
+                <a href={deployUrl} target="_blank" rel="noreferrer" className="break-all text-sm underline underline-offset-4 hover:text-[#ccc]">
+                  {deployUrl.replace(/^https?:\/\//, "")}
+                </a>
+                <button type="button" onClick={copyUrl} className="shrink-0 border border-[#3a3a3a] px-3 py-1.5 text-xs transition hover:border-white">
+                  {copied ? "Tersalin ✓" : "Salin URL"}
                 </button>
               </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-sky-900 bg-sky-950/20 p-4 text-sm text-sky-100">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <strong>{result.message}</strong>
-                  <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs ${toneClasses(tone)}`}>
-                    {inProgress && <span className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" aria-hidden />}
-                    {statusLabel(liveStatus)}
-                  </span>
-                </div>
-                {liveUrl && (
-                  <a href={liveUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-sky-300 px-5 py-3 font-semibold text-black transition hover:bg-sky-200">
-                    Buka website ↗
-                  </a>
-                )}
-                {liveError && <p className="mt-3 text-xs text-red-300">Kode error provider: {liveError}</p>}
-                <div className="mt-4 flex flex-wrap gap-3 text-xs">
-                  {result.project && (
-                    <Link href={`/projects/${result.project.id}`} className="rounded-lg border border-zinc-700 px-3 py-2 text-zinc-200 hover:border-zinc-500">
-                      Lihat proyek
-                    </Link>
-                  )}
-                  <Link href="/dashboard" className="rounded-lg border border-zinc-700 px-3 py-2 text-zinc-200 hover:border-zinc-500">
-                    Dashboard
-                  </Link>
-                  <button onClick={resetAll} className="rounded-lg border border-zinc-700 px-3 py-2 text-zinc-200 hover:border-zinc-500">
-                    + Deploy lagi
-                  </button>
-                </div>
-              </div>
+            )}
+            {deployError && <p className="mt-3 text-xs leading-relaxed text-red-300">{deployError}</p>}
+            {deployState !== "ready" && deployState !== "failed" && (
+              <p className="mt-3 text-xs text-[#929292]">Status diperbarui otomatis. Jangan tutup halaman ini.</p>
             )}
           </div>
         )}
-      </div>
+
+        {toast && (
+          <div className="mt-[14px] border border-[#3a3a3a] bg-[#0a0a0a] p-4 text-xs text-[#ccc]" aria-live="polite">
+            {toast}
+          </div>
+        )}
+      </main>
+
+      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-[#292929] px-[clamp(20px,5vw,72px)] py-5 text-xs text-[#666]">
+        <span>© 2026 <strong className="text-[#999]">FreeHosting</strong></span>
+        <span className="flex gap-4">
+          <Link href="/dashboard" className="hover:text-white">Dashboard</Link>
+          <span>Built for developers. Kept simple.</span>
+        </span>
+      </footer>
     </div>
   );
 }
