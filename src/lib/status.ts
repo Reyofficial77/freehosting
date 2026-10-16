@@ -1,4 +1,5 @@
-// Client-safe helpers for presenting deployment status (PRD section 9).
+// Client-safe helpers for presenting deployment status.
+// Monochrome presentation to match the site design; red is kept for errors.
 export const statusLabels: Record<string, string> = {
   uploaded: "Terunggah",
   validating: "Memvalidasi",
@@ -31,13 +32,13 @@ export function statusTone(status: string | null | undefined): StatusTone {
 export function toneClasses(tone: StatusTone): string {
   switch (tone) {
     case "ok":
-      return "border-emerald-900 bg-emerald-950/50 text-emerald-300";
+      return "border-white bg-white text-black";
     case "warn":
-      return "border-amber-900 bg-amber-950/40 text-amber-200";
+      return "border-[#3a3a3a] text-[#929292]";
     case "err":
-      return "border-red-900 bg-red-950/40 text-red-200";
+      return "border-red-900 text-red-300";
     default:
-      return "border-zinc-800 bg-zinc-900/60 text-zinc-300";
+      return "border-[#333] text-[#777]";
   }
 }
 

@@ -55,48 +55,49 @@ export default async function Dashboard() {
   const readyCount = projectRows.filter(({ project, deployment }) => (deployment?.status ?? project.status) === "ready").length;
 
   return (
-    <main className="min-h-screen">
-      <header className="border-b border-zinc-800">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <Link href="/" className="flex items-center gap-2 font-semibold">← FreeHosting</Link>
-          <Link href="/upload" className="rounded-lg bg-sky-300 px-4 py-2 text-sm font-semibold text-black transition hover:bg-sky-200">
-            + Buat proyek
-          </Link>
-        </div>
+    <div className="min-h-screen bg-black text-white">
+      <header className="flex h-[68px] items-center justify-between border-b border-[#292929] px-[clamp(20px,5vw,72px)]">
+        <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight">
+          <span className="grid h-[27px] w-[27px] place-items-center border border-white text-[13px] font-extrabold">F</span>
+          <span>FreeHosting</span>
+        </Link>
+        <Link href="/upload" className="bg-white px-4 py-2.5 text-xs font-semibold text-black transition hover:bg-[#ddd]">
+          + Buat proyek
+        </Link>
       </header>
 
-      <section className="mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-[850px] px-[22px] pb-14 pt-[58px]">
+        <p className="mb-[14px] text-[11px] uppercase tracking-[2px] text-[#929292]">Workspace</p>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-sm text-zinc-500">WORKSPACE</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Dashboard</h1>
-            <p className="mt-2 text-sm text-zinc-400">Pantau proyek dan status deployment kamu.</p>
+            <h1 className="text-[clamp(30px,5vw,45px)] font-semibold leading-[1.08] tracking-[-2px]">Dashboard</h1>
+            <p className="mt-3 text-sm leading-[1.7] text-[#929292]">Pantau proyek dan status deployment kamu.</p>
           </div>
           <div className="flex gap-3 text-xs">
-            <div className="rounded-xl border border-zinc-800 px-4 py-3 text-center">
+            <div className="border border-[#292929] px-4 py-3 text-center">
               <div className="text-lg font-semibold text-white">{projectRows.length}</div>
-              <div className="mt-0.5 text-zinc-500">Total proyek</div>
+              <div className="mt-0.5 text-[#666]">Total proyek</div>
             </div>
-            <div className="rounded-xl border border-zinc-800 px-4 py-3 text-center">
-              <div className="text-lg font-semibold text-emerald-300">{readyCount}</div>
-              <div className="mt-0.5 text-zinc-500">Aktif</div>
+            <div className="border border-[#292929] px-4 py-3 text-center">
+              <div className="text-lg font-semibold text-white">{readyCount}</div>
+              <div className="mt-0.5 text-[#666]">Aktif</div>
             </div>
           </div>
         </div>
 
         {!deployConfigured && (
-          <div className="mt-8 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-sm text-amber-200">
-            <strong>Integrasi deployment belum aktif.</strong> Atur <code>DEPLOY_API_TOKEN</code> di server agar proyek dapat diterbitkan.
+          <div className="mt-8 border border-[#3a3a3a] bg-[#0a0a0a] p-4 text-xs leading-6 text-[#ccc]">
+            <strong className="text-white">Integrasi deployment belum aktif.</strong> Atur <code>DEPLOY_API_TOKEN</code> di server agar proyek dapat diterbitkan.
           </div>
         )}
         {dbUnavailable && (
-          <div className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-sm text-amber-200">
-            <strong>Database belum terhubung.</strong> Isi <code>DATABASE_URL</code> di environment lalu jalankan migrasi.
+          <div className="mt-4 border border-[#3a3a3a] bg-[#0a0a0a] p-4 text-xs leading-6 text-[#ccc]">
+            <strong className="text-white">Database belum terhubung.</strong> Isi <code>DATABASE_URL</code> di environment lalu jalankan migrasi.
           </div>
         )}
 
-        <div className="mt-8 overflow-hidden rounded-2xl border border-zinc-800">
-          <div className="hidden grid-cols-[1fr_160px_140px_24px] gap-4 border-b border-zinc-800 bg-zinc-900/40 px-5 py-3 text-xs uppercase tracking-wider text-zinc-500 sm:grid">
+        <div className="mt-8 border border-[#292929]">
+          <div className="hidden grid-cols-[1fr_140px_120px_24px] gap-4 border-b border-[#292929] bg-[#080808] px-5 py-3 text-[10px] uppercase tracking-[1.5px] text-[#666] sm:grid">
             <span>Proyek</span><span>Status</span><span>Dibuat</span><span />
           </div>
           {projectRows.length ? (
@@ -107,35 +108,40 @@ export default async function Dashboard() {
                 <Link
                   key={project.id}
                   href={`/projects/${project.id}`}
-                  className="grid grid-cols-1 gap-3 border-b border-zinc-900 px-5 py-4 text-sm transition last:border-0 hover:bg-zinc-900/40 sm:grid-cols-[1fr_160px_140px_24px] sm:items-center sm:gap-4"
+                  className="grid grid-cols-1 gap-3 border-b border-[#1c1c1c] px-5 py-4 text-sm transition last:border-0 hover:bg-[#0a0a0a] sm:grid-cols-[1fr_140px_120px_24px] sm:items-center sm:gap-4"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">{project.name}</div>
-                    <div className="mt-1 truncate text-xs text-zinc-500">
+                    <div className="mt-1 truncate text-xs text-[#666]">
                       {project.framework ?? "Framework belum diketahui"} · {hostname ?? projectHostname(project.slug)}
                     </div>
                   </div>
-                  <span className={`w-fit rounded-full border px-2.5 py-1 text-xs ${toneClasses(tone)}`}>{statusLabel(effective)}</span>
-                  <span className="text-xs text-zinc-500">{project.createdAt.toLocaleDateString("id-ID")}</span>
-                  <span className="hidden text-zinc-600 sm:block" aria-hidden>→</span>
+                  <span className={`w-fit border px-2.5 py-1 text-[11px] ${toneClasses(tone)}`}>{statusLabel(effective)}</span>
+                  <span className="text-xs text-[#666]">{project.createdAt.toLocaleDateString("id-ID")}</span>
+                  <span className="hidden text-[#666] sm:block" aria-hidden>→</span>
                 </Link>
               );
             })
           ) : (
             <div className="px-6 py-16 text-center">
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-zinc-800 text-2xl">↗</div>
-              <h2 className="mt-4 font-medium">Belum ada proyek</h2>
-              <p className="mt-2 text-sm text-zinc-500">Upload arsip ZIP untuk memulai proyek pertamamu.</p>
-              <Link href="/upload" className="mt-5 inline-flex rounded-lg bg-sky-300 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-sky-200">
+              <div className="mx-auto grid h-12 w-12 place-items-center border border-[#3a3a3a] text-xl">↗</div>
+              <h2 className="mt-4 text-sm font-semibold">Belum ada proyek</h2>
+              <p className="mt-2 text-xs text-[#666]">Upload arsip ZIP untuk memulai proyek pertamamu.</p>
+              <Link href="/upload" className="mt-5 inline-block bg-white px-4 py-2.5 text-xs font-semibold text-black transition hover:bg-[#ddd]">
                 Upload ZIP
               </Link>
             </div>
           )}
         </div>
-        <p className="mt-4 text-xs leading-5 text-zinc-600">
+        <p className="mt-4 text-[11px] leading-5 text-[#555]">
           Dashboard menggunakan sesi tamu pada browser ini. Login pengguna, klaim proyek tamu, dan kuota lanjutan akan ditambahkan bertahap.
         </p>
-      </section>
-    </main>
+      </main>
+
+      <footer className="flex items-center justify-between border-t border-[#292929] px-[clamp(20px,5vw,72px)] py-5 text-[10px] text-[#777]">
+        <span>© 2026 <strong className="font-medium text-[#aaa]">FreeHosting</strong></span>
+        <span>Built for developers. Kept simple.</span>
+      </footer>
+    </div>
   );
 }
